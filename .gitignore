@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Large generated figures (optional — remove lines below to track them)
+# *.png
+
+# OS
+.DS_Store
+Thumbs.db
