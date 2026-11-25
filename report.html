@@ -68,9 +68,9 @@ Code: <code>heart_disease_ml.ipynb</code> in <code>github.com/ajanumala-Albert/h
 
 <h2>3. Data preparation and evaluation protocol</h2>
 <p><b>Encoding.</b> The five text columns are one-hot encoded, which uses no statistics of the data and is therefore safe before splitting. We keep two views of the same information. The <i>full one-hot</i> view has one column per level (20 columns) and is used by the tree, because a tree can only ask &ldquo;is this column above a threshold?&rdquo; and so needs every level as its own column. The <i><code>drop_first</code></i> view leaves out one reference level per variable (15 columns: female, asymptomatic chest pain, LVH on the ECG, no exercise angina and a down-sloping ST segment) and is used by logistic regression. The indicators of one variable always add up to 1, which equals the intercept column, so with all of them the weights would not be unique; dropping one level gives unique weights, each measured against its reference level.</p>
-<p><b>Invalid zeros and a missing flag.</b> Cholesterol contains 172 rows equal to 0 and RestingBP one. Neither is physiologically possible, so we treat them as missing and replace them with the median of the non-zero <i>training</i> values (237 mg/dl and 130 mm Hg when fitted on the whole pool). A median is a statistic of the data, so it is always fitted on the training part only. We also create a 0/1 column <code>Cholesterol_missing</code> that marks the rows where the value was missing. Whether each model benefits from this column is decided by cross-validation (Section 5).</p>
+<p><b>Invalid zeros.</b> Cholesterol contains 172 rows equal to 0 and RestingBP one. Neither is physiologically possible, so we treat them as missing and replace them with the median of the non-zero <i>training</i> values (237 mg/dl and 130 mm Hg when fitted on the whole pool). A median is a statistic of the data, so it is always fitted on the training part only. We do not add a &ldquo;was missing&rdquo; indicator column: the patients with a missing cholesterol value are 88% diseased (against 48% of the others), so such a column would help a model, but it would mostly reflect which source hospital a patient came from and not the patient (Section 9).</p>
 <p><b>Standardisation.</b> Logistic regression with gradient descent is sensitive to feature scale, so its inputs are standardised manually, (x &minus; &mu;<sub>j</sub>)/&sigma;<sub>j</sub>, with &mu;<sub>j</sub> and &sigma;<sub>j</sub> computed on the training part only. Trees are invariant to monotone rescaling and receive the unscaled values.</p>
-<p><b>Protocol.</b> We set aside a stratified 15% of the patients (138) as a test set. The other 85% (780 patients, the <i>pool</i>) is used for stratified 5-fold cross-validation: each fold in turn is the validation part (156 patients) and the other four form the training part (624 patients). In every fold the imputation medians and standardisation statistics come from that fold's training part only. Hyperparameters and the use of the flag are chosen with cross-validation; the test set is evaluated once, at the very end, after refitting on the whole pool.</p>
+<p><b>Protocol.</b> We set aside a stratified 15% of the patients (138) as a test set. The other 85% (780 patients, the <i>pool</i>) is used for stratified 5-fold cross-validation: each fold in turn is the validation part (156 patients) and the other four form the training part (624 patients). In every fold the imputation medians and standardisation statistics come from that fold's training part only. Hyperparameters are chosen with cross-validation; the test set is evaluated once, at the very end, after refitting on the whole pool.</p>
 
 <h2>4. Methodology</h2>
 <h3>4.1 Decision tree (CART with Gini impurity)</h3>
@@ -93,70 +93,66 @@ Code: <code>heart_disease_ml.ipynb</code> in <code>github.com/ajanumala-Albert/h
 <p><b>Training.</b> Starting from w = 0, b = 0, we repeat w &larr; w &minus; &alpha; &part;L/&part;w and b &larr; b &minus; &alpha; &part;L/&part;b for a fixed 2000 iterations, using all training patients at each step. The loss is convex, so there is no bad local minimum. For numerical safety, z is clipped to [&minus;500, 500] before exponentiating and p&#770; to [10<sup>&minus;15</sup>, 1 &minus; 10<sup>&minus;15</sup>] before taking logarithms.</p>
 
 <h3>4.3 Verification of the implementations</h3>
-<p><b>Numerical gradient check.</b> Before training, we compared our analytical gradient with a central finite difference, (L(&theta; + h&middot;e<sub>k</sub>) &minus; L(&theta; &minus; h&middot;e<sub>k</sub>))/2h with h = 10<sup>&minus;5</sup>, for all 16 weights and the bias, at random non-zero parameters. The largest absolute difference was 7.8&times;10<sup>&minus;12</sup>, so the hand-derived gradient is correct.</p>
-<p><b>Agreement with the libraries.</b> In every setting reported below the scikit-learn model is run with the same hyperparameters on the same rows. The scratch and scikit-learn trees give identical predictions (Sections 6.1 and 6.2). Scikit-learn's logistic regression is run without a penalty (<code>C = np.inf</code>) and with a tight tolerance, so it minimises exactly the same objective as ours; the two agree on about 99% of predictions.</p>
+<p><b>Numerical gradient check.</b> Before training, we compared our analytical gradient with a central finite difference, (L(&theta; + h&middot;e<sub>k</sub>) &minus; L(&theta; &minus; h&middot;e<sub>k</sub>))/2h with h = 10<sup>&minus;5</sup>, for all 15 weights and the bias, at random non-zero parameters. The largest absolute difference was 5.0&times;10<sup>&minus;12</sup>, so the hand-derived gradient is correct.</p>
+<p><b>Agreement with the libraries.</b> In every setting reported below the scikit-learn model is run with the same hyperparameters on the same rows. The scratch and scikit-learn trees give identical predictions (Sections 6.1 and 6.2). Scikit-learn's logistic regression is run without a penalty (<code>C = np.inf</code>) and with a tight tolerance, so it minimises exactly the same objective as ours; the two agree on about 98% of predictions.</p>
 
 <h2>5. Experimental setup and tuning</h2>
-<p><b>Tree.</b> We tried <code>max_depth</code> from 1 to 10 and <code>min_samples_leaf</code> in {1, 5, 10, 20}, and chose the setting with the highest mean validation accuracy over the 5 folds; ties go to the tree with fewer leaves. We did this with and without the <code>Cholesterol_missing</code> column. <b>Logistic regression.</b> We tried &alpha; in {0.001, 0.01, 0.05, 0.1, 0.3, 0.5} with 2000 iterations and chose the one with the lowest mean validation cross-entropy, which uses the predicted probabilities and is therefore less noisy than accuracy on 156 patients. <b>The flag rule</b>, fixed in advance: a model keeps <code>Cholesterol_missing</code> only if its tuned cross-validation accuracy is strictly higher with it. Library code was used only for splitting, metrics and the baselines, never inside our models.</p>
+<p><b>Tree.</b> We tried <code>max_depth</code> from 1 to 10 and <code>min_samples_leaf</code> in {1, 5, 10, 20}, and chose the setting with the highest mean validation accuracy over the 5 folds; ties go to the tree with fewer leaves. <b>Logistic regression.</b> We tried &alpha; in {0.001, 0.01, 0.05, 0.1, 0.3, 0.5} with 2000 iterations and chose the one with the lowest mean validation cross-entropy, which uses the predicted probabilities and is therefore less noisy than accuracy on 156 patients. Library code was used only for splitting, metrics and the baselines, never inside our models.</p>
 <figure><img src="figures/fig04_tree_depth_cv.png" style="width:95%">
 <figcaption><b>Figure 4.</b> Tree accuracy against depth (mean of 5 folds, full one-hot columns). Left: with no limit on the leaf size, training accuracy climbs towards 1 while validation accuracy falls, so the tree memorises the training patients. Right: with the selected <code>min_samples_leaf = 20</code> the tree stops growing at depth 4 and the gap between the curves is small.</figcaption></figure>
-<p>The selected tree has <code>max_depth = 4</code> and <code>min_samples_leaf = 20</code> (mean validation accuracy 0.842). The flag made no difference to the tree (identical results with and without it), so it was dropped. For the <code>drop_first</code> tree used in Section 7.3, cross-validation selected depth 3 with <code>min_samples_leaf = 1</code> (0.833).</p>
+<p>The selected tree has <code>max_depth = 4</code> and <code>min_samples_leaf = 20</code> (mean validation accuracy 0.842). For the <code>drop_first</code> tree used in Section 7.3, cross-validation selected depth 3 with <code>min_samples_leaf = 1</code> (0.833).</p>
 <figure><img src="figures/fig05_lr_learning_curves.png" style="width:82%">
 <figcaption><b>Figure 5.</b> Training loss against iteration for each learning rate (logarithmic horizontal axis). The dashed line is the minimum reached by scikit-learn's solver. &alpha; = 0.001 is still far from it after 2000 steps, &alpha; = 0.01 is close, and every &alpha; from 0.05 upwards reaches it within the 2000 steps, where the curves coincide.</figcaption></figure>
 <table>
-<caption><b>Table 2.</b> Learning-rate sweep for logistic regression with the <code>Cholesterol_missing</code> column (5-fold validation, 2000 iterations). The loss in the last column is on the whole training pool and ends at 0.3175 for the converged runs, the same as scikit-learn.</caption>
+<caption><b>Table 2.</b> Learning-rate sweep for logistic regression (5-fold validation, 2000 iterations). The last column is the training loss on the whole pool; the converged runs end at 0.332, the same as scikit-learn.</caption>
 <tr><th>Learning rate &alpha;</th><th>Validation cross-entropy</th><th>Validation accuracy</th><th>Training loss after 2000 steps</th></tr>
-<tr><td>0.001</td><td>0.4003</td><td>0.859</td><td>0.3952</td></tr>
-<tr><td><b>0.01</b></td><td><b>0.3412</b></td><td>0.865</td><td>0.3204</td></tr>
-<tr><td>0.05</td><td>0.3489</td><td>0.859</td><td>0.3175</td></tr>
-<tr><td>0.1</td><td>0.3495</td><td>0.859</td><td>0.3175</td></tr>
-<tr><td>0.3</td><td>0.3496</td><td>0.859</td><td>0.3175</td></tr>
-<tr><td>0.5</td><td>0.3496</td><td>0.859</td><td>0.3175</td></tr>
+<tr><td>0.001</td><td>0.4118</td><td>0.853</td><td>0.4067</td></tr>
+<tr><td><b>0.01</b></td><td><b>0.3546</b></td><td>0.853</td><td>0.3342</td></tr>
+<tr><td>0.05</td><td>0.3616</td><td>0.847</td><td>0.3320</td></tr>
+<tr><td>0.1</td><td>0.3622</td><td>0.847</td><td>0.3320</td></tr>
+<tr><td>0.3</td><td>0.3623</td><td>0.847</td><td>0.3320</td></tr>
+<tr><td>0.5</td><td>0.3623</td><td>0.847</td><td>0.3320</td></tr>
 </table>
-<p>The selected &alpha; is 0.01. With the flag, logistic regression reached a mean validation accuracy of 0.865, against 0.853 without it, so the flag was kept for logistic regression (the &alpha; chosen without the flag was also 0.01).</p>
+<p>The selected &alpha; is 0.01 (mean validation cross-entropy 0.3546). Rates from 0.05 upwards reach the same training loss as scikit-learn but give a slightly higher validation loss.</p>
 
 <h2>6. Results</h2>
 <h3>6.1 Cross-validation</h3>
 <table>
 <caption><b>Table 3.</b> Validation accuracy in each of the five folds (scratch models with the selected settings).</caption>
 <tr><th></th><th>Tree (full one-hot)</th><th>Tree (<code>drop_first</code>)</th><th>Logistic regression</th></tr>
-<tr><td>Fold 1</td><td>0.833</td><td>0.853</td><td>0.885</td></tr>
-<tr><td>Fold 2</td><td>0.801</td><td>0.808</td><td>0.814</td></tr>
+<tr><td>Fold 1</td><td>0.833</td><td>0.853</td><td>0.859</td></tr>
+<tr><td>Fold 2</td><td>0.801</td><td>0.808</td><td>0.801</td></tr>
 <tr><td>Fold 3</td><td>0.878</td><td>0.840</td><td>0.897</td></tr>
-<tr><td>Fold 4</td><td>0.846</td><td>0.821</td><td>0.872</td></tr>
-<tr><td>Fold 5</td><td>0.853</td><td>0.846</td><td>0.859</td></tr>
-<tr><td><b>Mean</b></td><td><b>0.842</b></td><td><b>0.833</b></td><td><b>0.865</b></td></tr>
-<tr><td>Std</td><td>0.028</td><td>0.019</td><td>0.032</td></tr>
+<tr><td>Fold 4</td><td>0.846</td><td>0.821</td><td>0.853</td></tr>
+<tr><td>Fold 5</td><td>0.853</td><td>0.846</td><td>0.853</td></tr>
+<tr><td><b>Mean</b></td><td><b>0.842</b></td><td><b>0.833</b></td><td><b>0.853</b></td></tr>
+<tr><td>Std</td><td>0.028</td><td>0.019</td><td>0.034</td></tr>
 </table>
 <table class="t4">
-<caption><b>Table 4.</b> Mean &plusmn; standard deviation over the 5 validation folds. &ldquo;Agree&rdquo; is the share of validation patients on which the scratch and scikit-learn models predict the same class. ROC-AUC is computed for logistic regression only (our tree outputs classes, not probabilities). With the flag, the full one-hot tree gave exactly the same results as without it.</caption>
+<caption><b>Table 4.</b> Mean &plusmn; standard deviation over the 5 validation folds. &ldquo;Agree&rdquo; is the share of validation patients on which the scratch and scikit-learn models predict the same class. ROC-AUC is computed for logistic regression only (our tree outputs classes, not probabilities).</caption>
 <tr><th>Model</th><th>Impl.</th><th>Accuracy</th><th>Precision</th><th>Recall</th><th>F1</th><th>ROC-AUC</th><th>Agree</th></tr>
 <tr><td rowspan="2">Tree, full one-hot</td><td>scratch</td><td>0.842 &plusmn; 0.028</td><td>0.846 &plusmn; 0.020</td><td>0.875 &plusmn; 0.033</td><td>0.860 &plusmn; 0.025</td><td>&ndash;</td><td rowspan="2">1.000</td></tr>
 <tr><td>sklearn</td><td>0.842 &plusmn; 0.028</td><td>0.846 &plusmn; 0.020</td><td>0.875 &plusmn; 0.033</td><td>0.860 &plusmn; 0.025</td><td>&ndash;</td></tr>
 <tr><td rowspan="2">Tree, <code>drop_first</code></td><td>scratch</td><td>0.833 &plusmn; 0.019</td><td>0.832 &plusmn; 0.027</td><td>0.877 &plusmn; 0.018</td><td>0.854 &plusmn; 0.014</td><td>&ndash;</td><td rowspan="2">1.000</td></tr>
 <tr><td>sklearn</td><td>0.833 &plusmn; 0.019</td><td>0.832 &plusmn; 0.027</td><td>0.877 &plusmn; 0.018</td><td>0.854 &plusmn; 0.014</td><td>&ndash;</td></tr>
-<tr><td rowspan="2">Logistic regression, no flag</td><td>scratch</td><td>0.853 &plusmn; 0.034</td><td>0.858 &plusmn; 0.027</td><td>0.880 &plusmn; 0.043</td><td>0.868 &plusmn; 0.031</td><td>0.920 &plusmn; 0.036</td><td rowspan="2">0.987</td></tr>
+<tr><td rowspan="2">Logistic regression</td><td>scratch</td><td>0.853 &plusmn; 0.034</td><td>0.858 &plusmn; 0.027</td><td>0.880 &plusmn; 0.043</td><td>0.868 &plusmn; 0.031</td><td>0.920 &plusmn; 0.036</td><td rowspan="2">0.987</td></tr>
 <tr><td>sklearn</td><td>0.847 &plusmn; 0.048</td><td>0.857 &plusmn; 0.040</td><td>0.871 &plusmn; 0.053</td><td>0.863 &plusmn; 0.042</td><td>0.917 &plusmn; 0.038</td></tr>
-<tr><td rowspan="2">Logistic regression, with flag</td><td>scratch</td><td>0.865 &plusmn; 0.032</td><td>0.864 &plusmn; 0.026</td><td>0.898 &plusmn; 0.043</td><td>0.881 &plusmn; 0.029</td><td>0.924 &plusmn; 0.030</td><td rowspan="2">0.988</td></tr>
-<tr><td>sklearn</td><td>0.859 &plusmn; 0.043</td><td>0.860 &plusmn; 0.039</td><td>0.891 &plusmn; 0.048</td><td>0.875 &plusmn; 0.038</td><td>0.922 &plusmn; 0.032</td></tr>
 </table>
-<p><b>Which model is best?</b> Logistic regression has the highest mean accuracy (0.865), followed by the full one-hot tree (0.842) and the <code>drop_first</code> tree (0.833). Logistic regression beats the tree in all 5 folds (mean difference +2.3 points), but each model's accuracy varies by about 3 points from fold to fold, so the advantage is modest. Its recall is also higher (0.898 against 0.875).</p>
-<p><b>Scratch against library.</b> The two decision trees are indistinguishable in every fold. For logistic regression the scratch model scores about 0.6 points higher than scikit-learn (0.865 against 0.859 with the flag; 0.853 against 0.847 without), well within one standard deviation, and the predictions agree on 98.7&ndash;98.8% of the validation patients. One possible explanation, which we did not test, is that our gradient descent stops after a fixed 2000 steps, slightly before the exact minimum.</p>
-<p><b>The <code>Cholesterol_missing</code> column</b> helps logistic regression (accuracy +1.2 points, recall 0.880 to 0.898) and makes no difference to the tree.</p>
+<p><b>Which model is best?</b> Logistic regression has the highest mean accuracy (0.853), followed by the full one-hot tree (0.842) and the <code>drop_first</code> tree (0.833). The differences are small. Logistic regression is ahead of the full one-hot tree by 1.0 point on average (better in 3 of 5 folds, tied in 2, never worse), while each model's accuracy varies by about 3 points from fold to fold. Cross-validation therefore gives logistic regression a slight edge but cannot separate the two models with confidence. Recall is about the same (0.880 against 0.875) and precision is 0.858 against 0.846.</p>
+<p><b>Scratch against library.</b> The two decision trees are indistinguishable in every fold. For logistic regression the scratch model scores 0.6 points higher than scikit-learn (0.853 against 0.847), well within one standard deviation, and the predictions agree on 98.7% of the validation patients. One possible explanation, which we did not test, is that our gradient descent stops after a fixed 2000 steps, slightly before the exact minimum.</p>
 
 <h3>6.2 Held-out test set</h3>
-<p>Each final model was refitted on the whole pool (780 patients) with the settings above and evaluated once on the 138 test patients.</p>
+<p>Cross-validation had already settled every choice: the two algorithms, their hyperparameters and their input columns. The test set was not used to choose between models or settings; it only gives one unbiased estimate of how the final tree and the final logistic regression, and their scikit-learn counterparts, perform on new patients. Each was refitted on the whole pool (780 patients) and evaluated once on the 138 test patients. (The tree on the <code>drop_first</code> columns was only an ablation in the cross-validation tables, so it is not evaluated here.)</p>
 <table>
 <caption><b>Table 5.</b> Test-set performance (138 patients; &ldquo;disease&rdquo; is the positive class).</caption>
 <tr><th>Model</th><th>Accuracy</th><th>Precision</th><th>Recall</th><th>F1</th><th>ROC-AUC</th></tr>
 <tr><td>Tree, full one-hot (scratch = scikit-learn)</td><td>0.812</td><td>0.821</td><td>0.842</td><td>0.831</td><td>&ndash;</td></tr>
-<tr><td>Tree, <code>drop_first</code> (scratch = scikit-learn)</td><td>0.790</td><td>0.805</td><td>0.816</td><td>0.810</td><td>&ndash;</td></tr>
-<tr><td>Logistic regression, scratch</td><td>0.891</td><td>0.896</td><td>0.908</td><td>0.902</td><td>0.937</td></tr>
-<tr><td>Logistic regression, scikit-learn</td><td>0.891</td><td>0.896</td><td>0.908</td><td>0.902</td><td>0.938</td></tr>
+<tr><td>Logistic regression, scratch</td><td>0.877</td><td>0.915</td><td>0.855</td><td>0.884</td><td>0.929</td></tr>
+<tr><td>Logistic regression, scikit-learn</td><td>0.884</td><td>0.905</td><td>0.882</td><td>0.893</td><td>0.932</td></tr>
 </table>
 <figure><img src="figures/fig06_confusion_matrices.png" style="width:80%">
-<figcaption><b>Figure 6.</b> Confusion matrices of the scratch models on the test set. The tree makes 14 false alarms and 12 misses; logistic regression makes 8 false alarms and 7 misses.</figcaption></figure>
-<p>The ranking is the same as in cross-validation. The two trees make identical predictions, and the two logistic regressions have the same metrics (their predictions differ on 2 of 138 patients). Each test accuracy is about one standard error (about 3 points on 138 patients) away from its cross-validation mean (logistic regression 0.891 against 0.865; tree 0.812 against 0.842). The gap between the two models is 8 points on this test set but only 2.3 points in cross-validation, so the cross-validation figure is the more trustworthy estimate of the difference.</p>
+<figcaption><b>Figure 6.</b> Confusion matrices of the scratch models on the test set. The tree makes 14 false alarms and 12 misses; logistic regression makes 6 false alarms and 11 misses.</figcaption></figure>
+<p>Logistic regression is ahead of the tree on the test set (0.877 against 0.812), the same direction as in cross-validation. The two trees make identical predictions. The two logistic regressions differ on 3 of 138 patients (agreement 0.978): the scratch model has the higher precision and the lower recall. One test patient is worth 0.7 points of accuracy, so a difference of 3 patients is within noise. The gap between logistic regression and the tree is 6.5 points on this test set but only 1.0 point in cross-validation. Each test accuracy is within about one standard error (about 3 points on 138 patients) of its cross-validation mean (logistic regression 0.877 against 0.853; tree 0.812 against 0.842), so this test set is somewhat more favourable to logistic regression than the average fold. The cross-validation figure is the more trustworthy estimate of the difference; the test set only confirms the direction.</p>
 
 <h2>7. Looking inside the models</h2>
 <h3>7.1 The decision tree</h3>
@@ -169,7 +165,7 @@ Code: <code>heart_disease_ml.ipynb</code> in <code>github.com/ajanumala-Albert/h
 <h3>7.2 The logistic regression weights</h3>
 <figure><img src="figures/fig09_lr_coefficients.png" style="width:66%">
 <figcaption><b>Figure 9.</b> Logistic regression weights on standardised inputs. Orange raises the predicted risk of disease, blue lowers it. Each 0/1 column is measured against its left-out reference level.</figcaption></figure>
-<p>The largest weights are an upward ST slope (&minus;0.62, lowers risk), non-anginal chest pain (&minus;0.57) and atypical angina (&minus;0.50), both relative to asymptomatic chest pain, a flat ST slope (+0.54), the missing-cholesterol flag (+0.52) and male sex (+0.49). Exercise angina, fasting blood sugar and Oldpeak also raise the risk. The flag deserves a warning: patients with a missing cholesterol value probably come from particular source hospitals, so the flag most likely reflects where the data came from and not a clinical effect. It should not be interpreted medically.</p>
+<p>The largest weights are an upward ST slope (&minus;0.64, lowers risk), non-anginal chest pain (&minus;0.57) and atypical angina (&minus;0.54), both relative to asymptomatic chest pain, a flat ST slope (+0.53) and male sex (+0.53). Exercise angina (+0.45) and high fasting blood sugar (+0.45) raise the risk, and a higher maximum heart rate (&minus;0.30) lowers it. Cholesterol, resting blood pressure and the resting ECG carry little weight; for cholesterol this is partly a consequence of replacing 172 zero values by a constant.</p>
 
 <h3>7.3 What the encoding does to the tree</h3>
 <figure><img src="figures/fig10_drop_first_tree.png" style="width:62%">
@@ -183,35 +179,35 @@ Code: <code>heart_disease_ml.ipynb</code> in <code>github.com/ajanumala-Albert/h
 <table>
 <caption><b>Table 6.</b> Effect of the threshold (out-of-fold predictions for the 780 pool patients: 432 diseased, 348 healthy).</caption>
 <tr><th>Threshold</th><th>Recall</th><th>Precision</th><th>Missed patients</th><th>False alarms</th></tr>
-<tr><td>0.5 (default)</td><td>0.898</td><td>0.864</td><td>44</td><td>61</td></tr>
-<tr><td>0.4</td><td>0.917</td><td>0.844</td><td>36</td><td>73</td></tr>
-<tr><td>0.3</td><td>0.938</td><td>0.837</td><td>27</td><td>79</td></tr>
-<tr><td>0.2</td><td>0.956</td><td>0.779</td><td>19</td><td>117</td></tr>
+<tr><td>0.5 (default)</td><td>0.880</td><td>0.858</td><td>52</td><td>63</td></tr>
+<tr><td>0.4</td><td>0.905</td><td>0.839</td><td>41</td><td>75</td></tr>
+<tr><td>0.3</td><td>0.938</td><td>0.820</td><td>27</td><td>89</td></tr>
+<tr><td>0.2</td><td>0.970</td><td>0.769</td><td>13</td><td>126</td></tr>
 </table>
-<p>Lowering the threshold from 0.5 to 0.3 cuts the missed patients from 44 to 27 at the price of 18 more false alarms. We do not pick a threshold, because that depends on how a missed patient is weighed against a false alarm; the figure only shows the trade-off.</p>
+<p>Lowering the threshold from 0.5 to 0.3 cuts the missed patients from 52 to 27 at the price of 26 more false alarms. We do not pick a threshold, because that depends on how a missed patient is weighed against a false alarm; the figure only shows the trade-off.</p>
 
 <h2>8. Computational cost</h2>
 <table>
 <caption><b>Table 7.</b> Median fit time on the 780 pool patients (5 runs, one laptop; the values vary from run to run).</caption>
 <tr><th>Model</th><th>Scratch</th><th>scikit-learn</th><th>Slower by</th></tr>
-<tr><td>Decision tree</td><td>85 ms</td><td>1.9 ms</td><td>about 45&times;</td></tr>
-<tr><td>Logistic regression</td><td>190 ms</td><td>8.6 ms</td><td>about 22&times;</td></tr>
+<tr><td>Decision tree</td><td>84 ms</td><td>2.2 ms</td><td>about 39&times;</td></tr>
+<tr><td>Logistic regression</td><td>187 ms</td><td>8.5 ms</td><td>about 22&times;</td></tr>
 </table>
 <p>Across our runs the tree was 35&ndash;50 times slower and the logistic regression 20&ndash;30 times slower. For the tree, our search recomputes the impurity for every threshold (about O(<i>d n</i><sup>2</sup>) per node) while scikit-learn sorts each feature once. For logistic regression, we run 2000 plain NumPy gradient steps, while scikit-learn's L-BFGS uses curvature information and stops when its tolerance is met. This is fine for 780 patients but would not scale to large data.</p>
 
 <h2>9. Discussion and conclusion</h2>
-<p><b>What the comparison shows.</b> Both scratch implementations are correct: the gradient passes the finite-difference check, the scratch tree makes the same predictions as scikit-learn's in every fold and on the test set, and the scratch logistic regression agrees with scikit-learn on about 99% of the predictions. Logistic regression is the better model here, by a modest margin: 0.865 against 0.842 in cross-validation (better in all 5 folds) and 0.891 against 0.812 on the test set. A weighted sum of all features suits this data, while a tree has to approximate smooth relations, such as risk rising as the maximum heart rate falls, with steps, and its shape can change with small changes in the training data (we expect this, but did not measure it). The tree's advantage is that it can be read aloud (Figure 7).</p>
-<p><b>Preprocessing matters, but less than the choice of model.</b> Fitting the imputation inside each fold avoids leakage. The missing-cholesterol flag helps logistic regression by about one point and does not help the tree; the encoding affects the tree only slightly once the tree is tuned by cross-validation.</p>
+<p><b>What the comparison shows.</b> Both scratch implementations are correct: the gradient passes the finite-difference check, the scratch tree makes the same predictions as scikit-learn's in every fold and on the test set, and the scratch logistic regression agrees with scikit-learn on about 98% of the predictions, with differences that go in both directions. Logistic regression is probably slightly better than the tree: 0.853 against 0.842 in cross-validation (better in 3 of 5 folds, tied in 2) and 0.877 against 0.812 on the test set. Because each model varies by about 3 points between folds, we describe logistic regression as &ldquo;probably slightly better&rdquo; and not clearly better. A weighted sum of all features suits this data, while a tree has to approximate smooth relations, such as risk rising as the maximum heart rate falls, with steps, and its shape can change with small changes in the training data (we expect this, but did not measure it). The tree's advantage is that it can be read aloud (Figure 7).</p>
+<p><b>Preprocessing and evaluation design matter.</b> Fitting the imputation inside each fold avoids leakage, and the encoding affects the tree only slightly once it is tuned by cross-validation.</p>
 <p><b>Limitations.</b></p>
 <ul>
 <li><i>Small data.</i> With 918 patients, a test set of 138 has a standard error of about 3 points, so differences of one or two points are not meaningful. Hyperparameters were chosen on the same folds that are reported, so the cross-validation scores are slightly optimistic; the test set is the unbiased check.</li>
 <li><i>Mixed sources.</i> The data merge five hospital datasets, 79% of the patients are male, and the missing cholesterol values probably come from particular sources (the file has no column that tells us). Results may not transfer to other populations.</li>
-<li><i>Imputation.</i> 172 cholesterol values are replaced by a single median; the flag only tells the model that they were missing.</li>
+<li><i>Imputation.</i> 172 cholesterol values (19%) are replaced by a single median. These patients are 88% diseased against 48% of the others, so the fact that a value is missing is itself informative. A &ldquo;was missing&rdquo; indicator column would probably raise accuracy a little, but it would mostly reflect which source hospital a patient came from and not the patient, so we did not use it.</li>
 <li><i>Optimisation.</i> Gradient descent runs a fixed 2000 iterations without a convergence test, and the learning rate is chosen from six values.</li>
-<li><i>Medical use.</i> At the default threshold about 1 in 10 diseased patients is missed. This project is a learning exercise and not a diagnostic tool.</li>
+<li><i>Medical use.</i> At the default threshold about 1 in 8 diseased patients is missed. This project is a learning exercise and not a diagnostic tool.</li>
 </ul>
 <p><b>Possible improvements.</b> A convergence-based stopping rule for gradient descent, a faster (sorted) split search for the tree, and an ensemble of trees to reduce the tree's variance.</p>
-<p><b>Conclusion.</b> We implemented a Gini-based decision tree and an unregularised gradient-descent logistic regression from scratch and compared them with scikit-learn using 5-fold cross-validation and a held-out test set, with all preprocessing fitted on training data only. The tree matches the library exactly, and the logistic regression matches it to within about 1% of predictions. Logistic regression was the better predictor (cross-validated accuracy 0.865 against 0.842), and both models relied mainly on the exercise ST slope and the chest-pain type. The main lesson for us was how much the evaluation design matters: a single split, one validation set and an arbitrary tie-break can each change which model, and which tree, looks best.</p>
+<p><b>Conclusion.</b> We implemented a Gini-based decision tree and an unregularised gradient-descent logistic regression from scratch and compared them with scikit-learn using 5-fold cross-validation and a held-out test set, with all preprocessing fitted on training data only. The tree matches the library exactly, and the logistic regression matches it to within about 2% of predictions. Logistic regression was probably the better predictor (cross-validated accuracy 0.853 against 0.842, test accuracy 0.877 against 0.812), and both models relied mainly on the exercise ST slope and the chest-pain type. The main lesson for us was how much the evaluation design matters: a single split, one validation set and an arbitrary tie-break can each change which model, and which tree, looks best.</p>
 
 <h2>10. Reproducing the results</h2>
 <p>The environment needs Python 3.10 or newer with numpy, pandas, matplotlib, seaborn, scikit-learn and jupyter (<code>requirements.txt</code>; the notebook was run with Python 3.13, numpy 2.4.6, pandas 3.1.1, matplotlib 3.11.2, seaborn 0.13.2 and scikit-learn 1.9.1; <code>C = np.inf</code> for an unpenalised baseline needs a recent scikit-learn). Download <code>heart.csv</code> from the Kaggle URL in Section 2 and place it next to the notebook, then run <code>heart_disease_ml.ipynb</code> from top to bottom (about two minutes). The random seed is fixed to 42 for the splits, the folds and the scikit-learn baselines; the from-scratch models are deterministic, so every number in this report is reproduced by the notebook, except the fit times in Table 7. The notebook saves the figures used here in the <code>figures/</code> folder.</p>
