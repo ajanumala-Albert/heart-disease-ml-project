@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -)",
+      "Bash(cd \"c:/Users/adars/Documents/Dev/School/Machine *)",
+      "Read(//dev/**)"
+    ]
+  }
+}
